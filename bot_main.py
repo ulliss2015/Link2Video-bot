@@ -1,18 +1,17 @@
 import asyncio
 import logging
-import sys
-import yt_dlp
+import os
 import subprocess
-from aiogram import Bot, Dispatcher, types, html
-from aiogram.types import Message
-from aiogram.types import FSInputFile
+import sys
+import uuid
+from datetime import datetime
+
+import yt_dlp
+from aiogram import Bot, Dispatcher, html, types
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
-
-import os
-from datetime import datetime
-import uuid
+from aiogram.types import Message, FSInputFile
 
 # Function to load blocked sites from file
 def load_blocked_sites(filename):
@@ -28,11 +27,9 @@ BLOCKED_SITES = load_blocked_sites(BLOCKED_SITES_FILE)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TMP_DIR = os.path.join(SCRIPT_DIR, 'tmp')
 
-
 # Create /tmp/ directory if it does not exist
 if not os.path.exists(TMP_DIR):
     os.makedirs(TMP_DIR)
-
 
 # Read API token from 'api.txt' file
 with open('api.txt', 'r') as f:
@@ -63,7 +60,7 @@ def is_valid_url(message_text):
 
 # Function to rename the file
 def rename_file(filename):
-    now = datetime.now().strftime("%Y-%m-%d-%H-%M")#[:25]
+    now = datetime.now().strftime("%Y-%m-%d-%H-%M")
     randname = uuid.uuid4().hex[:8]  # Take only the first 8 characters of the random name
     new_filename = f"{now}_{randname}"
     file_ext = os.path.splitext(filename)[-1]  # Get file extension
@@ -132,4 +129,4 @@ async def main() -> None:
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(dp.start_polling(bot))
+    asyncio.run(main())
