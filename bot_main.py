@@ -24,6 +24,15 @@ def load_blocked_sites(filename):
 BLOCKED_SITES_FILE = 'blocked_sites.txt'
 BLOCKED_SITES = load_blocked_sites(BLOCKED_SITES_FILE)
 
+# Get the directory of the Python script
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+TMP_DIR = os.path.join(SCRIPT_DIR, 'tmp')
+
+
+# Create /tmp/ directory if it does not exist
+if not os.path.exists(TMP_DIR):
+    os.makedirs(TMP_DIR)
+
 
 # Read API token from 'api.txt' file
 with open('api.txt', 'r') as f:
@@ -38,7 +47,7 @@ logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 
 # Function to download video from a URL
 async def download_video(url):
-    ydl_opts = {}
+    ydl_opts = {'outtmpl': os.path.join(TMP_DIR, '%(title)s.%(ext)s')}
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
         duration = info.get('duration', 0)
@@ -75,7 +84,7 @@ def convert_to_mp4(filename):
     if os.path.splitext(filename)[-1] == '.mp4':
         return filename  # No need to convert if already in MP4 format
     else:
-        subprocess.run(["ffmpeg", "-i", filename, "-c:v", "libx264", "-preset", "medium", "-crf", "23", "-c:a", "aac", "-b:a", "128k", "-movflags", "faststart", mp4_filename])
+        subprocess.run(["ffmpeg", "-i", filename, "-c:v", "libx264", "-preset", "medium", "-crf", "23", "-c:a", "aac", "-b:a", "320k", "-movflags", "faststart", mp4_filename])
         return mp4_filename
 
 # Handler for '/start' command
