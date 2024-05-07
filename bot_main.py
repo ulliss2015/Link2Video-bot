@@ -2,6 +2,7 @@ import asyncio
 import logging
 import sys
 import yt_dlp
+import subprocess
 from aiogram import Bot, Dispatcher, types, html
 from aiogram.types import Message
 from aiogram.types import FSInputFile
@@ -68,6 +69,15 @@ def is_blocked_site(url):
             return True
     return False
 
+# Function to convert video to MP4 using ffmpeg
+def convert_to_mp4(filename):
+    mp4_filename = os.path.splitext(filename)[0] + ".mp4"
+    if os.path.splitext(filename)[-1] == '.mp4':
+        return filename  # No need to convert if already in MP4 format
+    else:
+        subprocess.run(["ffmpeg", "-i", filename, "-c:v", "libx264", "-preset", "medium", "-crf", "23", "-c:a", "aac", "-b:a", "128k", "-movflags", "faststart", mp4_filename])
+        return mp4_filename
+
 # Handler for '/start' command
 @dp.message(CommandStart()) 
 async def command_start_handler(message: Message):
@@ -88,14 +98,18 @@ async def download_and_send_video(message: Message):
             filename = await download_video(url)
             renamed_filename = rename_file(filename)
 
+            mp4_filename = convert_to_mp4(renamed_filename)
+
             await message.reply_video(
                 video=types.FSInputFile(
-                    renamed_filename
+                    mp4_filename
                 ) 
             )
 
             # Remove the original file
-            os.remove(renamed_filename)
+            if mp4_filename != renamed_filename:
+                os.remove(renamed_filename)
+            os.remove(mp4_filename)
         else:
             await message.answer("Please send a video link starting with http or https.")
     except ValueError as ve:
@@ -110,4 +124,3 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(dp.start_polling(bot))
-
