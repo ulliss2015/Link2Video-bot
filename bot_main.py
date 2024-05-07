@@ -44,13 +44,22 @@ logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 
 # Function to download video from a URL
 async def download_video(url):
-    ydl_opts = {'outtmpl': os.path.join(TMP_DIR, '%(title)s.%(ext)s')}
+    ydl_opts = {
+        'format': 'best',
+        'outtmpl': os.path.join(TMP_DIR, '%(title)s.%(ext)s')
+        }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
         duration = info.get('duration', 0)
         if duration > 120:  # Check if video duration exceeds 2 minutes
             raise ValueError("Video duration exceeds 2 minutes.")
         filename = ydl.prepare_filename(info)
+
+        # file_size = info.get('filesize')
+        # if file_size is not None and int(file_size) > 30 * 1024 * 1024:  # Convert MB to bytes
+        #     raise ValueError("File size exceeds 30 MB.")
+        # filename = ydl.prepare_filename(info)
+            
         ydl.download([url])  # Download the video
     return filename
 
