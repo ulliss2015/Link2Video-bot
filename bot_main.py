@@ -167,8 +167,8 @@ async def download_and_send_video(message: Message):
     except ValueError as ve:
         logging.error(f"Error downloading or sending video: {ve}")
         await message.answer(f"Video cannot be downloaded: {ve}")
-    # except Exception as e:
-    #     logging.error(f"Error downloading or sending video: {e}")
+    except Exception as e:
+        logging.error(f"Error downloading or sending video: {e}")
     #     await message.answer(
     #         "An error occurred while downloading or sending the video. Please try again or send a different link."
     #     )
