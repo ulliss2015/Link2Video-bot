@@ -8,7 +8,7 @@ import instaloader
 import yt_dlp
 
 from datetime import datetime
-from aiogram import Bot, Dispatcher, html, types
+from aiogram import Bot, Dispatcher, html, types, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
@@ -130,14 +130,14 @@ def convert_to_mp4(filename):
 
 # Handler for '/start' command
 @dp.message(CommandStart())
-async def command_start_handler(message: Message):
+async def command_start_handler(message: Message) :
     await message.answer(
         f"Hello, {html.bold(message.from_user.full_name)}! "
         "Send me a link to the video you want to download."
     )
 
-# Handler for all other messages
-@dp.message()
+# Handler for text messages
+@dp.message(F.text & F.text.startswith("http"))
 async def download_and_send_video(message: Message):
     try:
         # Check if message is a URL using a separate function
@@ -160,10 +160,10 @@ async def download_and_send_video(message: Message):
             if mp4_filename != renamed_filename:
                 os.remove(renamed_filename)
             os.remove(mp4_filename)
-        # else:
-        #     await message.answer(
-        #         "Please send a video link starting with http or https."
-        #     )
+        else:
+            await message.answer(
+                "Please send a video link starting with http or https."
+            )
     except ValueError as ve:
         logging.error(f"Error downloading or sending video: {ve}")
         await message.answer(f"Video cannot be downloaded: {ve}")
