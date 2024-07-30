@@ -19,5 +19,5 @@ fi
 tmux send-keys -t "$SESSION_NAME:$WINDOW_NAME" "$BOT_PATH" C-m
 
 # Переключаемся в сессию tmux
-tmux attach-session -t "$SESSION_NAME"
+#tmux attach-session -t "$SESSION_NAME"
 
