@@ -1,6 +1,7 @@
-api.txt
-.venv
-bot_main_copy.py
-tmp
-back
-copy
+*
+
+!bot_main.py
+!requirements.txt
+!stop_bot*
+!start_bot*
+!.gitignore

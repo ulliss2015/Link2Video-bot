@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import random
 import os
 import subprocess
 import sys
@@ -62,23 +63,27 @@ def download_instagram_video(url):
 
 # Function to download video from a URL
 async def download_video(url):
+    random_filename = f"yt-dlp_{random.randint(100000, 999999)}.mp4"
+
     if "instagram.com" in url:
         return download_instagram_video(url)
     else:
-        ydl_opts = {"format": "best", "outtmpl": os.path.join(TMP_DIR, "%(title)s.%(ext)s")}
+        ydl_opts = {
+            'outtmpl': f'{TMP_DIR}/{random_filename}',
+            'merge_output_format': 'mp4',
+            'noplaylist': True,
+            'netrc': True,
+            'verbose': True,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'cookiefile': 'cookies.txt',
+        }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             duration = info.get("duration", 0)
-            if duration > 120:  # Check if video duration exceeds 2 minutes
-                raise ValueError("Video duration exceeds 2 minutes.")
-            filename = ydl.prepare_filename(info)
-            
-            # file_size = info.get('filesize')
-            # if file_size is not None and int(file_size) > 30 * 1024 * 1024:  # Convert MB to bytes
-            #     raise ValueError("File size exceeds 30 MB.")
-            # filename = ydl.prepare_filename(info)
-
+            if duration > 180:  # Check if video duration exceeds 3 minutes
+                raise ValueError("Video duration exceeds 3 minutes.")
             ydl.download([url])  # Download the video
+            filename = os.path.join(TMP_DIR, random_filename)
         return filename
 
 # Function to check if a message is a valid URL
@@ -171,9 +176,6 @@ async def download_and_send_video(message: Message):
         await message.answer(f"Video cannot be downloaded: {ve}")
     except Exception as e:
         logging.error(f"Error downloading or sending video: {e}")
-    #     await message.answer(
-    #         "An error occurred while downloading or sending the video. Please try again or send a different link."
-    #     )
 
 async def main() -> None:
     await dp.start_polling(bot)
