@@ -4,7 +4,7 @@
 SESSION_NAME="Link2Video-bot"
 
 # File path
-BOT_PATH="source source ~/Link2Video-bot/.venv/bin/activate && ~/Link2Video-bot/python3 bot_main.py"
+BOT_PATH="source ~/Link2Video-bot/.venv/bin/activate && ~/Link2Video-bot/python3 bot_main.py"
 
 # Window name
 WINDOW_NAME="link2Video-bot"
