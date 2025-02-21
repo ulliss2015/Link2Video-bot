@@ -80,7 +80,7 @@ async def download_video(url):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             duration = info.get("duration", 0)
-            if duration > 180:  # Check if video duration exceeds 3 minutes
+            if duration > 200:  # Check if video duration exceeds 3 minutes
                 raise ValueError("Video duration exceeds 3 minutes.")
             ydl.download([url])  # Download the video
             filename = os.path.join(TMP_DIR, random_filename)
@@ -156,6 +156,7 @@ async def download_and_send_video(message: Message):
                     "Sorry, downloading from this site is not supported."
                 )
                 return
+            await message.answer("Downloading the video...")    
             filename = await download_video(url)
             renamed_filename = rename_file(filename)
 
