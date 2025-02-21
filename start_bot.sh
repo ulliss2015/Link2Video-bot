@@ -12,7 +12,7 @@ WINDOW_NAME="link2Video-bot"
 # Check if session exists
 if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
 	# Create a new session and window
-	tmux new-session -d -s "$SESSION_NAME" -n "$WINDOW_NAME"
+	tmux new-session -d -s "$SESSION_NAME" -n "$WINDOW_NAME" bash
 fi
 
 # go to session and window tmux
