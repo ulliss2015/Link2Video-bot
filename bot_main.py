@@ -46,46 +46,28 @@ bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTM
 # Configure logging
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 
-# Function to download video from Instagram
-def download_instagram_video(url):
-    L = instaloader.Instaloader(dirname_pattern=TMP_DIR)
-    post = instaloader.Post.from_shortcode(L.context, url.split("/")[-2])
-    video_url = post.video_url
-
-    video_path = os.path.join(TMP_DIR, f"{post.owner_username}_{post.shortcode}.mp4")
-    L.download_post(post, target=TMP_DIR)
-
-    for file in os.listdir(TMP_DIR):
-        if file.endswith(".mp4"):
-            return os.path.join(TMP_DIR, file)
-
-    raise ValueError("Failed to download Instagram video")
-
 # Function to download video from a URL
 async def download_video(url):
     random_filename = f"yt-dlp_{random.randint(100000, 999999)}.mp4"
 
-    if "instagram.com" in url:
-        return download_instagram_video(url)
-    else:
-        ydl_opts = {
-            'outtmpl': f'{TMP_DIR}/{random_filename}',
-            'format': 'bv*[height<=1080]+ba/b[height<=1080]',
-            'merge_output_format': 'mp4',
-            'noplaylist': True,
-            'netrc': True,
-            'verbose': True,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'cookiefile': 'cookies.txt',
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            duration = info.get("duration", 0)
-            if duration > 360:  # Check if video duration exceeds 3 minutes
-                raise ValueError("Video duration exceeds 3 minutes.")
-            ydl.download([url])  # Download the video
-            filename = os.path.join(TMP_DIR, random_filename)
-        return filename
+    ydl_opts = {
+        'outtmpl': f'{TMP_DIR}/{random_filename}',
+        'format': 'bv*[height<=1080]+ba/b[height<=1080]',
+        'merge_output_format': 'mp4',
+        'noplaylist': True,
+        'netrc': True,
+        'verbose': True,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'cookiefile': 'cookies.txt',
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+        duration = info.get("duration", 0)
+        if duration > 360:  # Check if video duration exceeds 3 minutes
+            raise ValueError("Video duration exceeds 3 minutes.")
+        ydl.download([url])  # Download the video
+        filename = os.path.join(TMP_DIR, random_filename)
+    return filename
 
 # Function to check if a message is a valid URL
 def is_valid_url(message_text):
