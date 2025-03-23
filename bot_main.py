@@ -9,6 +9,7 @@ import sys
 import uuid
 import instaloader
 import yt_dlp
+import re
 
 from datetime import datetime
 from aiogram import Bot, Dispatcher, html, types, F
@@ -69,6 +70,28 @@ async def download_video(url):
         filename = os.path.join(TMP_DIR, random_filename)
     return filename
 
+async def download_audio(url):
+    random_filename = f"audio_{random.randint(100000, 999999)}"
+    ydl_opts = {
+        'outtmpl': f'{TMP_DIR}/{random_filename}',
+        'format': 'bestaudio/best',
+        'extract_audio': True,
+        'audio_format': 'mp3',
+        # 'postprocessors': [{
+        #     'key': 'FFmpegExtractAudio',
+        #     'preferredcodec': 'mp3',
+        #     'preferredquality': '320',
+        # }],
+        'noplaylist': True,
+        'netrc': True,
+        'verbose': True,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'cookiefile': 'cookies.txt',
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+    return os.path.join(TMP_DIR, random_filename)
+
 # Function to check if a message is a valid URL
 def is_valid_url(message_text):
     return message_text.startswith("http")
@@ -127,42 +150,49 @@ async def command_start_handler(message: Message) :
     )
 
 # Handler for text messages
-@dp.message(F.text & F.text.startswith("http"))
-async def download_and_send_video(message: Message):
-    try:
-        # Check if message is a URL using a separate function
-        if is_valid_url(message.text):
-            url = message.text
-            # Check if the URL is from a blocked site
-            if is_blocked_site(url):
-                await message.answer(
-                    "Sorry, downloading from this site is not supported."
-                )
-                return
-            await message.answer("Downloading the video...")    
-            filename = await download_video(url)
-            renamed_filename = rename_file(filename)
+@dp.message(F.text)                                                                                 
+async def download_and_send_video(message: Message):                                                                    
+    try:                                                                                                                
+        url_match = re.search(r'https?://[^\s]+', message.text)                                                         
+        if not url_match:                                                                                               
+            await message.answer("Please include the URL in the message.")                                                
+            return                                                                                                      
+        url = url_match.group(0)
 
-            mp4_filename = convert_to_mp4(renamed_filename)
-
-            await message.reply_video(video=types.FSInputFile(mp4_filename))
-
-            # Remove the original file
-            if mp4_filename != renamed_filename:
-                os.remove(renamed_filename)
-            os.remove(mp4_filename)
+        # Check if the URL is from a blocked site                                                                   
+        if is_blocked_site(url):                                                                                    
+            await message.answer(                                                                                   
+                "Sorry, downloading from this site is not supported."                                               
+            )                                                                                                       
+            return
+        download_audio_check = "-a" in message.text.lower() 
+        if download_audio_check:
+                logging.info(f"Downloading audio from {url}")                                                                                                
+                await message.answer("Downloading the audio...")
+                filename = await download_audio(url)
+                print(filename)
+                await message.reply_audio(audio=types.FSInputFile(filename))
+                logging.info(f"Removing file {filename}")
+                os.remove(filename)                                                            
         else:
-            await message.answer(
-                "Please send a video link starting with http or https."
-            )
-    except ValueError as ve:
-        logging.error(f"Error downloading or sending video: {ve}")
-        await message.answer(f"Video cannot be downloaded: {ve}")
-    except Exception as e:
-        logging.error(f"Error downloading or sending video: {e}")
-
-async def main() -> None:
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+            logging.info(f"Downloading video from {url}")                                                                                                
+            await message.answer("Downloading the video...") 
+            filename = await download_video(url)                                                                        
+            renamed_filename = rename_file(filename)                                                                    
+            mp4_filename = convert_to_mp4(renamed_filename)
+            await message.reply_video(video=types.FSInputFile(mp4_filename))                                                                                                                                      
+            logging.info(f"Removing file {renamed_filename}")                                                                        
+            os.remove(renamed_filename)
+            logging                                                                             
+            os.remove(mp4_filename)                                                                                                         
+    except ValueError as ve:                                                                                            
+        logging.error(f"Error downloading or sending video: {ve}")                                                      
+        await message.answer(f"Video cannot be downloaded: {ve}")                                                       
+    except Exception as e:                                                                                              
+        logging.error(f"Error downloading or sending video: {e}")                                                       
+                                                                                                                        
+async def main() -> None:                                                                                               
+    await dp.start_polling(bot)                                                                                         
+                                                                                                                        
+if __name__ == "__main__":                                                                                              
+    asyncio.run(main())    
