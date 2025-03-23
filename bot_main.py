@@ -18,6 +18,22 @@ from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
 from aiogram.types import Message, FSInputFile
 
+# ---------------------------
+# LOGGING CONFIGURATION
+# ---------------------------
+logdir = os.getenv("LOGDIR", "./logs")
+os.makedirs(logdir, exist_ok=True)
+log_file_path = os.path.join(logdir, "LINK2VIDEO.log")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    handlers=[
+        logging.FileHandler(log_file_path, encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
+)
+
 # Function to load blocked sites from file
 def load_blocked_sites(filename):
     with open(filename, "r") as f:
