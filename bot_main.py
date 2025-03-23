@@ -70,6 +70,7 @@ async def download_video(url):
     else:
         ydl_opts = {
             'outtmpl': f'{TMP_DIR}/{random_filename}',
+            'format': 'bv*[height<=1080]+ba/b[height<=1080]',
             'merge_output_format': 'mp4',
             'noplaylist': True,
             'netrc': True,
