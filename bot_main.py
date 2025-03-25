@@ -81,12 +81,14 @@ def sync_download_media(url, media_type="video"):
     else:  # audio
         ydl_opts.update({
             'format': 'bestaudio/best',
+            'extract_audio': True,
+            'audio_format': 'mp3',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
                 'preferredquality': '320',
             }],
-            'audioformat': 'mp3',
+            
         })
 
     try:
