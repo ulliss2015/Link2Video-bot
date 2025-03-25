@@ -77,7 +77,6 @@ def sync_download_media(url, media_type="video"):
         ydl_opts.update({
             'format': 'bv*[height<=1080]+ba/b[height<=1080]/bv*[width<=1080]+ba/b[width<=1080]',
             'merge_output_format': 'mp4',
-
         })
     else:  # audio
         ydl_opts.update({
@@ -92,9 +91,10 @@ def sync_download_media(url, media_type="video"):
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            duration = 360
             info = ydl.extract_info(url, download=False)
-            if media_type == "video" and info.get('duration', 0) > 360:
-                raise ValueError("Video duration exceeds 3 minutes")
+            if media_type == "video" and info.get('duration', 0) > duration:
+                raise ValueError(f"Video duration exceeds {duration/60} minutes")
             ydl.download([url])
         return os.path.join(TMP_DIR, random_filename + (".mp4" if media_type == "video" else ".mp3"))
     except Exception as e:
@@ -119,28 +119,36 @@ async def safe_remove_file(path):
 # ---------------------------
 # TASK WORKER SYSTEM
 # ---------------------------
-async def process_task(user_id: int, message: Message, url: str, is_audio: bool = False):
+async def process_task(
+        user_id: int, message: Message, url: str, 
+        is_audio: bool = False, default_processing: Message = None):
     """Process single download task"""
-    print (f'USER ID: {user_id}, Message: {message} URL: {url}, IS AUDIO: {is_audio}')
     try:
+        if default_processing:
+            await default_processing.delete()
+        process_msg = await message.answer(
+            "⏳ Downloading Audio..." if is_audio else "⏳ Downloading Video..."
+        )
+        
         media_type = "audio" if is_audio else "video"
         filename = await download_media(url, media_type)
+
         if is_audio:
             logging.info(f"Downloading audio from {url}")
-            await message.answer("⏳ Downloading Audio...")
             await message.reply_audio(
                 audio=types.FSInputFile(filename),
                 caption="🎵 Your audio",
-            )
+                )
+            await process_msg.delete()
         else:
             logging.info(f"Downloading video from {url}")
-            await message.answer("⏳ Downloading Viedo...")
             await message.reply_video(
                 video=types.FSInputFile(filename),
                 caption="🎬 Your video",
-            )
+                )
+            await process_msg.delete()                
 
-            await safe_remove_file(filename)
+        await safe_remove_file(filename)
     except Exception as e:
         await bot.send_message(user_id, f"❌ Error: {str(e)}")
         logging.error(f"Task failed for {user_id}: {str(e)}")
@@ -151,8 +159,8 @@ async def task_worker():
         async with worker_lock:
             for user_id in list(task_queues.keys()):
                 if task_queues[user_id]:
-                    url, is_audio, message = task_queues[user_id].pop(0)
-                    asyncio.create_task(process_task(user_id, message, url, is_audio))
+                    url, is_audio, message, default_processing = task_queues[user_id].pop(0)
+                    asyncio.create_task(process_task(user_id, message, url, is_audio, default_processing))
         await asyncio.sleep(0.5)  # Prevent CPU overload
 
 # ---------------------------
@@ -183,8 +191,9 @@ async def message_handler(message: Message):
         return await message.answer("❌ Downloads from this site are blocked")
     
     is_audio = "-a" in message.text.lower()
-    task_queues[message.from_user.id].append((url, is_audio, message))
-    await message.answer("✅ Task added to queue. Processing...")
+    default_processing = await message.answer("✅ Task added to queue. Processing...")
+    task_queues[message.from_user.id].append((url, is_audio, message, default_processing))
+    
 
 # ---------------------------
 # MAIN APPLICATION
