@@ -63,7 +63,7 @@ def sync_download_media(url, media_type="video"):
     """Synchronous download function to run in threads"""
     random_filename = f"{media_type}_{random.randint(100000, 999999)}"
     ydl_opts = {
-        'outtmpl': f'{TMP_DIR}/{random_filename}',
+        'outtmpl': f'{TMP_DIR}/{random_filename}.%(ext)s',
         'quiet': True,
         'no_warnings': True,
         'noplaylist': True,
