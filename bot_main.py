@@ -152,7 +152,11 @@ async def process_task(
 
         await safe_remove_file(filename)
     except Exception as e:
-        await bot.send_message(user_id, f"❌ Error: {str(e)}")
+        if message.chat.type == "private":
+            await bot.send_message(user_id, f"❌ Error: {str(e)}")
+        else:
+            await bot.send_message(message.chat.id, f"❌ Error when processing your request. Please try again or contact support.")
+        
         logging.error(f"Task failed for {user_id}: {str(e)}")
 
 async def task_worker():
@@ -173,6 +177,10 @@ def is_blocked(url):
     """Check if URL is blocked"""
     return any(blocked in url for blocked in BLOCKED_SITES)
 
+def has_url(text):
+    """Check if text contains URL"""
+    return bool(re.search(r'https?://[^\s]+', text))
+
 @dp.message(CommandStart())
 async def start_handler(message: Message):
     await message.answer(
@@ -181,21 +189,31 @@ async def start_handler(message: Message):
         "Add '-a' to download audio only."
     )
 
+# Handler for messages with URLs
 @dp.message(F.text)
 async def message_handler(message: Message):
-    url_match = re.search(r'https?://[^\s]+', message.text)                                                         
-    if not url_match:                                                                                               
-        await message.answer("Please include the URL in the message.")                                                
-        return                                                                                                      
+    url_match = re.search(r'https?://[^\s]+', message.text)
+    
+    # If message is from a group chat and does not contain URL, ignore it
+    if message.chat.type != "private" and not url_match:
+        return
+    
+    # If message is from a group chat and contains URL, process it
+    if not url_match:
+        await message.answer("Please include the URL in the message.")
+        return
+    
     url = url_match.group(0)
     
     if is_blocked(url):
-        return await message.answer("❌ Downloads from this site are blocked")
+        if message.chat.type == "private":
+            return await message.answer("❌ Downloads from this site are blocked")
+        else:
+            return await message.answer("❌ Error...")
     
     is_audio = "-a" in message.text.lower()
     default_processing = await message.answer("✅ Task added to queue. Processing...")
     task_queues[message.from_user.id].append((url, is_audio, message, default_processing))
-    
 
 # ---------------------------
 # MAIN APPLICATION
