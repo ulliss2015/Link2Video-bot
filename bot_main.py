@@ -186,7 +186,7 @@ async def start_handler(message: Message):
     await message.answer(
         f"Hello, {html.bold(message.from_user.full_name)}!\n"
         "Send me a link to download video/audio.\n"
-        "Add '-a' to download audio only."
+        "Add ' -a' to download audio only."
     )
 
 # Handler for messages with URLs
@@ -211,7 +211,7 @@ async def message_handler(message: Message):
         else:
             return await message.answer("❌ Error...")
     
-    is_audio = "-a" in message.text.lower()
+    is_audio = " -a" in message.text.lower()
     default_processing = await message.answer("✅ Task added to queue. Processing...")
     task_queues[message.from_user.id].append((url, is_audio, message, default_processing))
 
