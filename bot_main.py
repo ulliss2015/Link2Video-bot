@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 
 import asyncio
 import logging
@@ -46,7 +46,16 @@ def load_blocked_sites(filename="blocked_sites.txt"):
     except FileNotFoundError:
         return []
 
+# Load allowed sites
+def load_allowed_sites(filename="allowed_sites.txt"):
+    try:
+        with open(filename, "r") as f:
+            return [line.strip() for line in f if line.strip()]
+    except FileNotFoundError:
+        return []
+
 BLOCKED_SITES = load_blocked_sites()
+ALLOWED_SITES = load_allowed_sites()
 
 # Initialize bot
 bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -177,6 +186,10 @@ def is_blocked(url):
     """Check if URL is blocked"""
     return any(blocked in url for blocked in BLOCKED_SITES)
 
+def is_allowed(url):
+    """Check if URL is from allowed site"""
+    return any(allowed in url for allowed in ALLOWED_SITES)
+
 def has_url(text):
     """Check if text contains URL"""
     return bool(re.search(r'https?://[^\s]+', text))
@@ -186,7 +199,15 @@ async def start_handler(message: Message):
     await message.answer(
         f"Hello, {html.bold(message.from_user.full_name)}!\n"
         "Send me a link to download video/audio.\n"
-        "Add ' -a' to download audio only."
+        "Add ' -a' to download audio only.\n\n"
+        "🌐 Supported sites:\n"
+        "• YouTube\n"
+        "• Instagram\n"
+        "• TikTok\n"
+        "• Facebook\n"
+        "• Twitter/X\n"
+        "• Twitch\n"
+        "• SoundCloud\n"
     )
 
 # Handler for messages with URLs
@@ -205,11 +226,13 @@ async def message_handler(message: Message):
     
     url = url_match.group(0)
     
+    # Check if site is allowed - if not, simply ignore
+    if not is_allowed(url):
+        return
+    
+    # Additional check for blocked sites (if needed)
     if is_blocked(url):
-        if message.chat.type == "private":
-            return await message.answer("❌ Downloads from this site are blocked")
-        else:
-            return await message.answer("❌ Error...")
+        return
     
     is_audio = " -a" in message.text.lower()
     default_processing = await message.answer("✅ Task added to queue. Processing...")
