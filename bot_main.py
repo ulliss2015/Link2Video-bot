@@ -9,6 +9,7 @@ import sys
 import uuid
 import yt_dlp
 import re
+import instaloader
 from collections import defaultdict
 from datetime import datetime
 from aiogram import Bot, Dispatcher, html, types, F
@@ -109,7 +110,57 @@ def sync_download_media(url, media_type="video"):
             ydl.download([url])
         return os.path.join(TMP_DIR, random_filename + (".mp4" if media_type == "video" else ".mp3"))
     except Exception as e:
+        # If it's Instagram and "no video" error, try to extract image
+        if "instagram" in url.lower() and "There is no video in this post" in str(e):
+            return sync_download_instagram_image(url)
         raise ValueError(f"Download failed: {str(e)}")
+
+def sync_download_instagram_image(url):
+    """Download first image from Instagram post when no video is available"""
+    try:
+        # Extract post ID from URL
+        post_id_match = re.search(r'/p/([^/]+)', url)
+        if not post_id_match:
+            post_id_match = re.search(r'/reel/([^/]+)', url)
+        
+        if not post_id_match:
+            raise ValueError("Cannot extract post ID from URL")
+            
+        post_id = post_id_match.group(1)
+        
+        # Configure instaloader to download only images to our tmp directory
+        L = instaloader.Instaloader(
+            dirname_pattern=TMP_DIR,
+            filename_pattern=f"image_{random.randint(100000, 999999)}",
+            download_videos=False,
+            download_video_thumbnails=False,
+            download_geotags=False,
+            download_comments=False,
+            save_metadata=False,
+            compress_json=False,
+            quiet=True
+        )
+        
+        # Download the post
+        post = instaloader.Post.from_shortcode(L.context, post_id)
+        L.download_post(post, target="")
+        
+        # Find the downloaded image file
+        for file in os.listdir(TMP_DIR):
+            if file.startswith(f"image_{post_id}") and file.endswith(('.jpg', '.jpeg', '.png')):
+                return os.path.join(TMP_DIR, file)
+        
+        # If no file found with post_id, look for any recent image file
+        image_files = [f for f in os.listdir(TMP_DIR) if f.startswith("image_") and f.endswith(('.jpg', '.jpeg', '.png'))]
+        if image_files:
+            # Return the most recently created image file
+            image_files.sort(key=lambda x: os.path.getctime(os.path.join(TMP_DIR, x)), reverse=True)
+            return os.path.join(TMP_DIR, image_files[0])
+            
+        raise ValueError("No image file was downloaded")
+                
+    except Exception as e:
+        raise ValueError(f"Failed to extract Instagram image: {str(e)}")
 
 async def download_media(url, media_type="video"):
     """Async wrapper for media download"""
@@ -138,27 +189,32 @@ async def process_task(
         if default_processing:
             await default_processing.delete()
         process_msg = await message.answer(
-            "⏳ Downloading Audio..." if is_audio else "⏳ Downloading Video..."
+            "⏳ Downloading Audio..." if is_audio else "⏳ Downloading Media..."
         )
         
         media_type = "audio" if is_audio else "video"
         filename = await download_media(url, media_type)
 
-        if is_audio:
+        # Determine file type by extension
+        file_ext = os.path.splitext(filename)[1].lower()
+        
+        if is_audio or file_ext in ['.mp3', '.wav', '.m4a']:
             logging.info(f"Downloading audio from {url}")
             await message.reply_audio(
                 audio=types.FSInputFile(filename),
-                caption="🎵 Your audio",
                 )
-            await process_msg.delete()
+        elif file_ext in ['.jpg', '.jpeg', '.png', '.webp']:
+            logging.info(f"Downloading image from {url}")
+            await message.reply_photo(
+                photo=types.FSInputFile(filename),
+                )
         else:
             logging.info(f"Downloading video from {url}")
             await message.reply_video(
                 video=types.FSInputFile(filename),
-                caption="🎬 Your video",
                 )
-            await process_msg.delete()                
-
+                
+        await process_msg.delete()
         await safe_remove_file(filename)
     except Exception as e:
         if message.chat.type == "private":
