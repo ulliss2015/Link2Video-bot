@@ -18,14 +18,16 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message, FSInputFile
 
 # ---------------------------
-# CONFIGURATION
+# LOGGING CONFIGURATION
 # ---------------------------
+logdir = os.getenv("LOGDIR", "./logs")
+log_file = os.path.join(logdir, "Link2video.log")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     handlers=[
-        logging.FileHandler("link2video.log", encoding="utf-8"),
-        logging.StreamHandler(),
+        logging.FileHandler(log_file, mode="a", encoding="utf-8"),
+        # logging.StreamHandler(),
     ],
 )
 
