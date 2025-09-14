@@ -112,8 +112,14 @@ def sync_download_media(url, media_type="video"):
             ydl.download([url])
         return os.path.join(TMP_DIR, random_filename + (".mp4" if media_type == "video" else ".mp3"))
     except Exception as e:
-        # If it's Instagram and "no video" error, try to extract image
-        if "instagram" in url.lower() and "There is no video in this post" in str(e):
+        # If it's Instagram and video-related error, try to extract image
+        if "instagram" in url.lower() and any(error_text in str(e) for error_text in [
+            "There is no video in this post",
+            "No video formats found",
+            "Unable to download webpage",
+            "Private account",
+            "Post not found"
+        ]):
             return sync_download_instagram_image(url)
         raise ValueError(f"Download failed: {str(e)}")
 
