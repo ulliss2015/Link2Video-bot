@@ -10,6 +10,7 @@ import uuid
 import yt_dlp
 import re
 import instaloader
+import base64
 from collections import defaultdict
 from datetime import datetime
 from aiogram import Bot, Dispatcher, html, types, F
@@ -17,6 +18,16 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
 from aiogram.types import Message, FSInputFile
+
+# Playwright imports (optional, only if needed)
+try:
+    from playwright.async_api import async_playwright
+    from playwright_stealth.stealth import Stealth
+    PLAYWRIGHT_AVAILABLE = True
+    logging.info("Playwright successfully loaded")
+except ImportError as e:
+    PLAYWRIGHT_AVAILABLE = False
+    logging.warning(f"Playwright not available: {e}. Instagram stealth fallback disabled.")
 
 # ---------------------------
 # LOGGING CONFIGURATION
@@ -118,7 +129,10 @@ def sync_download_media(url, media_type="video"):
             "No video formats found",
             "Unable to download webpage",
             "Private account",
-            "Post not found"
+            "Post not found",
+            "rate-limit reached",
+            "login required",
+            "Requested content is not available"
         ]):
             return sync_download_instagram_image(url)
         raise ValueError(f"Download failed: {str(e)}")
@@ -126,6 +140,8 @@ def sync_download_media(url, media_type="video"):
 def sync_download_instagram_image(url):
     """Download first image from Instagram post when no video is available"""
     try:
+        logging.info(f"Attempting to download Instagram image using instaloader: {url}")
+        
         # Extract post ID from URL
         post_id_match = re.search(r'/p/([^/]+)', url)
         if not post_id_match:
@@ -168,7 +184,168 @@ def sync_download_instagram_image(url):
         raise ValueError("No image file was downloaded")
                 
     except Exception as e:
+        # If instaloader fails, try playwright stealth method
+        logging.warning(f"Instaloader failed: {str(e)}")
+        if PLAYWRIGHT_AVAILABLE:
+            try:
+                logging.info(f"Attempting Instagram download using Playwright Stealth: {url}")
+                # Run async stealth function in the current event loop
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    return loop.run_until_complete(sync_download_instagram_stealth(url))
+                finally:
+                    loop.close()
+            except Exception as stealth_error:
+                logging.warning(f"Playwright stealth also failed: {stealth_error}")
         raise ValueError(f"Failed to extract Instagram image: {str(e)}")
+
+def parse_netscape_cookies(cookies_file_path):
+    """Parse Netscape cookies file format for Playwright"""
+    cookies = []
+    try:
+        with open(cookies_file_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    parts = line.split('\t')
+                    if len(parts) >= 7:
+                        domain = parts[0]
+                        domain_initial_dot = parts[1].lower() == 'true'
+                        path = parts[2]
+                        secure = parts[3].lower() == 'true'
+                        expires = parts[4]
+                        name = parts[5]
+                        value = parts[6]
+                        
+                        cookie = {
+                            'name': name,
+                            'value': value,
+                            'domain': domain.lstrip('.'),
+                            'path': path,
+                            'secure': secure
+                        }
+                        
+                        # Add expiry if it's not a session cookie
+                        if expires and expires != '0':
+                            try:
+                                cookie['expires'] = int(expires)
+                            except ValueError:
+                                pass
+                        
+                        cookies.append(cookie)
+        logging.info(f"Parsed {len(cookies)} cookies from {cookies_file_path}")
+        return cookies
+    except Exception as e:
+        logging.warning(f"Failed to parse cookies: {e}")
+        return []
+
+async def sync_download_instagram_stealth(url):
+    """Download Instagram image using Playwright stealth mode"""
+    try:
+        logging.info(f"Starting Playwright stealth download for: {url}")
+        
+        # Extract post ID from URL
+        post_id_match = re.search(r'/p/([^/]+)', url)
+        if not post_id_match:
+            post_id_match = re.search(r'/reel/([^/]+)', url)
+        
+        if not post_id_match:
+            raise ValueError("Cannot extract post ID from URL")
+            
+        post_id = post_id_match.group(1)
+        logging.info(f"Extracted post ID: {post_id}")
+        
+        async with async_playwright() as p:
+            # Launch browser with stealth settings
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-dev-shm-usage',
+                    '--disable-extensions',
+                    '--disable-gpu',
+                    '--no-first-run',
+                    '--no-default-browser-check',
+                    '--disable-default-apps',
+                    '--disable-features=TranslateUI',
+                    '--disable-ipc-flooding-protection',
+                ]
+            )
+            
+            # Create context with user agent
+            context = await browser.new_context(
+                user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1'
+            )
+            
+            page = await context.new_page()
+            
+            # Apply stealth settings
+            stealth = Stealth()
+            await stealth.apply_stealth_async(page)
+            
+            # Load cookies if available
+            try:
+                cookies_path = os.path.join(SCRIPT_DIR, 'cookies.txt')
+                if os.path.exists(cookies_path):
+                    logging.info("Loading cookies for Instagram access")
+                    # Parse Netscape cookies format and add to context
+                    cookies = parse_netscape_cookies(cookies_path)
+                    if cookies:
+                        await context.add_cookies(cookies)
+            except Exception as cookie_error:
+                logging.warning(f"Could not load cookies: {cookie_error}")
+            
+            # Navigate to Instagram post
+            await page.goto(url, wait_until='networkidle', timeout=30000)
+            
+            # Wait for images to load
+            await page.wait_for_timeout(3000)
+            
+            # Find image elements
+            image_selectors = [
+                'img[style*="object-fit"]',
+                'article img',
+                '[role="button"] img',
+                'img[src*="scontent"]'
+            ]
+            
+            image_url = None
+            for selector in image_selectors:
+                try:
+                    img_element = await page.query_selector(selector)
+                    if img_element:
+                        src = await img_element.get_attribute('src')
+                        if src and 'scontent' in src:
+                            image_url = src
+                            break
+                except:
+                    continue
+            
+            if not image_url:
+                raise ValueError("No image found on the page")
+            
+            # Download the image
+            response = await page.goto(image_url)
+            if response.status != 200:
+                raise ValueError(f"Failed to download image: HTTP {response.status}")
+            
+            image_content = await response.body()
+            
+            # Save image to tmp directory
+            random_filename = f"stealth_image_{random.randint(100000, 999999)}.jpg"
+            filepath = os.path.join(TMP_DIR, random_filename)
+            
+            with open(filepath, 'wb') as f:
+                f.write(image_content)
+            
+            await context.close()
+            await browser.close()
+            return filepath
+            
+    except Exception as e:
+        raise ValueError(f"Playwright stealth download failed: {str(e)}")
 
 async def download_media(url, media_type="video"):
     """Async wrapper for media download"""

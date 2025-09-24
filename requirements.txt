@@ -15,6 +15,8 @@ instaloader==4.14.1
 logging==0.4.9.6
 magic-filter==1.0.12
 multidict==6.6.3
+playwright==1.40.0
+playwright-stealth==2.0.0
 propcache==0.3.2
 pydantic==2.11.7
 pydantic_core==2.33.2
