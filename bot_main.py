@@ -98,8 +98,12 @@ def sync_download_media(url, media_type="video"):
 
     if media_type == "video":
         ydl_opts.update({
-            'format': 'bv*[height<=1080]+ba/b[height<=1080]/bv*[width<=1080]+ba/b[width<=1080]',
+            'format': 'bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/b[height<=1080][vcodec^=avc1]/best',
             'merge_output_format': 'mp4',
+            'postprocessor_args': [
+                '-c', 'copy',
+                '-movflags', '+faststart'
+            ],
         })
     else:  # audio
         ydl_opts.update({
