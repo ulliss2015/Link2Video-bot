@@ -9,15 +9,15 @@ import sys
 import uuid
 import yt_dlp
 import re
-import instaloader
 import base64
+from instagrapi import Client
 from collections import defaultdict
 from datetime import datetime
 from aiogram import Bot, Dispatcher, html, types, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
-from aiogram.types import Message, FSInputFile
+from aiogram.types import Message, FSInputFile, InputMediaPhoto, InputMediaVideo
 
 # Playwright imports (optional, only if needed)
 try:
@@ -28,6 +28,7 @@ try:
 except ImportError as e:
     PLAYWRIGHT_AVAILABLE = False
     logging.warning(f"Playwright not available: {e}. Instagram stealth fallback disabled.")
+
 
 # ---------------------------
 # LOGGING CONFIGURATION
@@ -51,6 +52,8 @@ os.makedirs(TMP_DIR, exist_ok=True)
 # Load API token
 with open("api.txt", "r") as f:
     API_TOKEN = f.read().strip()
+
+IG_SESSION_PATH = os.path.join(SCRIPT_DIR, "ig_session.json")
 
 # Load blocked sites
 def load_blocked_sites(filename="blocked_sites.txt"):
@@ -79,130 +82,125 @@ dp = Dispatcher()
 task_queues = defaultdict(list)
 worker_lock = asyncio.Lock()
 
+
+def get_ig_client():
+    """Initialize Instagram client with session support"""
+    cl = Client()    
+    # if os.path.exists(IG_SESSION_PATH):
+    #     cl.load_settings(IG_SESSION_PATH)
+    # return cl
+
+    if os.path.exists(IG_SESSION_PATH):
+        try:
+            cl.load_settings(IG_SESSION_PATH)
+            cl.get_timeline_feed()  # Check if session is still alive
+            logging.info("Instagram session loaded successfully")
+        except Exception:
+            logging.warning("Session expired, need to re-login via auth_insta.py")
+    else:
+        logging.warning("No ig_session.json found!")
+    return cl
+
 # ---------------------------
 # DOWNLOAD UTILITIES
 # ---------------------------
 def sync_download_media(url, media_type="video"):
-    """Synchronous download function to run in threads"""
+    """Optimized function: separates YouTube and Instagram"""
+    
+    # If it's Instagram - go straight to instagrapi (much faster)
+    if "instagram.com" in url.lower():
+        return sync_download_instagram_all_types(url, media_type)
+
+    # For everything else (YouTube, TikTok, etc.) keep yt-dlp
     random_filename = f"{media_type}_{random.randint(100000, 999999)}"
     ydl_opts = {
         'outtmpl': f'{TMP_DIR}/{random_filename}.%(ext)s',
         'quiet': True,
         'no_warnings': True,
         'noplaylist': True,
-        'netrc': True,
-        'verbose': True,
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'cookiefile': 'cookies.txt',   
+        'cookiefile': 'cookies.txt',
+        'format': 'bv*[height<=720][vcodec^=avc1]+ba/b[height<=720][vcodec^=avc1]/best',
+        'merge_output_format': 'mp4',
+        'postprocessor_args': ['-c', 'copy', '-movflags', '+faststart'],
     }
 
-    if media_type == "video":
-        ydl_opts.update({
-            'format': 'bv*[height<=720][vcodec^=avc1]+ba/b[height<=720][vcodec^=avc1]/best',
-            'merge_output_format': 'mp4',
-            'postprocessor_args': [
-                '-c', 'copy',
-                '-movflags', '+faststart'
-            ],
-        })
-    else:  # audio
-        ydl_opts.update({
-            'format': 'bestaudio/best',
-            'extract_audio': True,
-            'audio_format': 'mp3',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '320',
-            }],
-            
-        })
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        return os.path.join(TMP_DIR, random_filename + ".mp4")
 
+def sync_download_instagram_all_types(url, media_type="video"):
+    """Universal and fastest Instagram downloader"""
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            duration = 360
-            info = ydl.extract_info(url, download=False)
-            if media_type == "video" and info.get('duration', 0) > duration:
-                raise ValueError(f"Video duration exceeds {duration/60} minutes")
-            ydl.download([url])
-        return os.path.join(TMP_DIR, random_filename + (".mp4" if media_type == "video" else ".mp3"))
-    except Exception as e:
-        # If it's Instagram and video-related error, try to extract image
-        if "instagram" in url.lower() and any(error_text in str(e) for error_text in [
-            "There is no video in this post",
-            "No video formats found",
-            "Unable to download webpage",
-            "Private account",
-            "Post not found",
-            "rate-limit reached",
-            "login required",
-            "Requested content is not available"
-        ]):
-            return sync_download_instagram_image(url)
-        raise ValueError(f"Download failed: {str(e)}")
+        cl = get_ig_client()
+        # media_pk_from_url works instantly
+        media_pk = cl.media_pk_from_url(url)
+        
+        # Using v1 - faster and more reliable for validation errors
+        media_info = cl.media_info_v1(media_pk)
+        
+        random_id = random.randint(100000, 999999)
 
-def sync_download_instagram_image(url):
-    """Download first image from Instagram post when no video is available"""
-    try:
-        logging.info(f"Attempting to download Instagram image using instaloader: {url}")
-        
-        # Extract post ID from URL
-        post_id_match = re.search(r'/p/([^/]+)', url)
-        if not post_id_match:
-            post_id_match = re.search(r'/reel/([^/]+)', url)
-        
-        if not post_id_match:
-            raise ValueError("Cannot extract post ID from URL")
+        # Type 1: Single photo
+        if media_info.media_type == 1:
+            # Download directly by URL from info (fastest method)
+            path = cl.photo_download(media_pk, folder=TMP_DIR)
+            new_path = os.path.join(TMP_DIR, f"ig_{random_id}.jpg")
+            if os.path.exists(path):
+                os.rename(path, new_path)
+            return new_path
+
+        # Type 8: Album (Carousel)
+        elif media_info.media_type == 8:
+            # Download all carousel elements
+            logging.info(f"Downloading carousel album from {url}")
+            paths = cl.album_download(media_pk, folder=TMP_DIR)
             
-        post_id = post_id_match.group(1)
-        
-        # Configure instaloader to download only images to our tmp directory
-        L = instaloader.Instaloader(
-            dirname_pattern=TMP_DIR,
-            filename_pattern=f"image_{random.randint(100000, 999999)}",
-            download_videos=False,
-            download_video_thumbnails=False,
-            download_geotags=False,
-            download_comments=False,
-            save_metadata=False,
-            compress_json=False,
-            quiet=True
-        )
-        
-        # Download the post
-        post = instaloader.Post.from_shortcode(L.context, post_id)
-        L.download_post(post, target="")
-        
-        # Find the downloaded image file
-        for file in os.listdir(TMP_DIR):
-            if file.startswith(f"image_{post_id}") and file.endswith(('.jpg', '.jpeg', '.png')):
-                return os.path.join(TMP_DIR, file)
-        
-        # If no file found with post_id, look for any recent image file
-        image_files = [f for f in os.listdir(TMP_DIR) if f.startswith("image_") and f.endswith(('.jpg', '.jpeg', '.png'))]
-        if image_files:
-            # Return the most recently created image file
-            image_files.sort(key=lambda x: os.path.getctime(os.path.join(TMP_DIR, x)), reverse=True)
-            return os.path.join(TMP_DIR, image_files[0])
+            if not paths:
+                raise ValueError("No files downloaded from carousel")
             
-        raise ValueError("No image file was downloaded")
-                
+            # Rename files for convenience and return list
+            renamed_paths = []
+            for i, path in enumerate(paths):
+                if os.path.exists(path):
+                    ext = os.path.splitext(path)[1] or '.jpg'
+                    new_path = os.path.join(TMP_DIR, f"ig_carousel_{random_id}_{i+1}{ext}")
+                    os.rename(path, new_path)
+                    renamed_paths.append(new_path)
+            
+            # Return list of files instead of single file
+            return renamed_paths if renamed_paths else paths[0]  # fallback to first file if renaming failed
+
+        # Type 2: Video / Reels
+        elif media_info.media_type == 2:
+            path = cl.video_download(media_pk, folder=TMP_DIR)
+            new_path = os.path.join(TMP_DIR, f"ig_{random_id}.mp4")
+            if os.path.exists(path):
+                os.rename(path, new_path)
+            return new_path
+
     except Exception as e:
-        # If instaloader fails, try playwright stealth method
-        logging.warning(f"Instaloader failed: {str(e)}")
-        if PLAYWRIGHT_AVAILABLE:
-            try:
-                logging.info(f"Attempting Instagram download using Playwright Stealth: {url}")
-                # Run async stealth function in the current event loop
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    return loop.run_until_complete(sync_download_instagram_stealth(url))
-                finally:
-                    loop.close()
-            except Exception as stealth_error:
-                logging.warning(f"Playwright stealth also failed: {stealth_error}")
-        raise ValueError(f"Failed to extract Instagram image: {str(e)}")
+        logging.error(f"Instagrapi error: {e}")
+        # If API failed, try the good old yt-dlp as a fallback
+        return fallback_download_yt_dlp(url, media_type)
+
+def fallback_download_yt_dlp(url, media_type):
+    """Fallback method if Instagram API is acting up"""
+    random_filename = f"fallback_{random.randint(100000, 999999)}"
+    ydl_opts = {
+        'outtmpl': f'{TMP_DIR}/{random_filename}.%(ext)s',
+        'quiet': True,
+        'cookiefile': 'cookies.txt',
+        'format': 'best', 
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+        # Searching for any downloaded file with known extensions, which yt-dlp might have used
+        for ext in ['mp4', 'jpg', 'webp']:
+            path = os.path.join(TMP_DIR, f"{random_filename}.{ext}")
+            if os.path.exists(path):
+                return path
+    raise ValueError("All download methods failed")
+
 
 def parse_netscape_cookies(cookies_file_path):
     """Parse Netscape cookies file format for Playwright"""
@@ -244,113 +242,6 @@ def parse_netscape_cookies(cookies_file_path):
         logging.warning(f"Failed to parse cookies: {e}")
         return []
 
-async def sync_download_instagram_stealth(url):
-    """Download Instagram image using Playwright stealth mode"""
-    try:
-        logging.info(f"Starting Playwright stealth download for: {url}")
-        
-        # Extract post ID from URL
-        post_id_match = re.search(r'/p/([^/]+)', url)
-        if not post_id_match:
-            post_id_match = re.search(r'/reel/([^/]+)', url)
-        
-        if not post_id_match:
-            raise ValueError("Cannot extract post ID from URL")
-            
-        post_id = post_id_match.group(1)
-        logging.info(f"Extracted post ID: {post_id}")
-        
-        async with async_playwright() as p:
-            # Launch browser with stealth settings
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    '--no-sandbox',
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-dev-shm-usage',
-                    '--disable-extensions',
-                    '--disable-gpu',
-                    '--no-first-run',
-                    '--no-default-browser-check',
-                    '--disable-default-apps',
-                    '--disable-features=TranslateUI',
-                    '--disable-ipc-flooding-protection',
-                ]
-            )
-            
-            # Create context with user agent
-            context = await browser.new_context(
-                user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1'
-            )
-            
-            page = await context.new_page()
-            
-            # Apply stealth settings
-            stealth = Stealth()
-            await stealth.apply_stealth_async(page)
-            
-            # Load cookies if available
-            try:
-                cookies_path = os.path.join(SCRIPT_DIR, 'cookies.txt')
-                if os.path.exists(cookies_path):
-                    logging.info("Loading cookies for Instagram access")
-                    # Parse Netscape cookies format and add to context
-                    cookies = parse_netscape_cookies(cookies_path)
-                    if cookies:
-                        await context.add_cookies(cookies)
-            except Exception as cookie_error:
-                logging.warning(f"Could not load cookies: {cookie_error}")
-            
-            # Navigate to Instagram post
-            await page.goto(url, wait_until='networkidle', timeout=30000)
-            
-            # Wait for images to load
-            await page.wait_for_timeout(3000)
-            
-            # Find image elements
-            image_selectors = [
-                'img[style*="object-fit"]',
-                'article img',
-                '[role="button"] img',
-                'img[src*="scontent"]'
-            ]
-            
-            image_url = None
-            for selector in image_selectors:
-                try:
-                    img_element = await page.query_selector(selector)
-                    if img_element:
-                        src = await img_element.get_attribute('src')
-                        if src and 'scontent' in src:
-                            image_url = src
-                            break
-                except:
-                    continue
-            
-            if not image_url:
-                raise ValueError("No image found on the page")
-            
-            # Download the image
-            response = await page.goto(image_url)
-            if response.status != 200:
-                raise ValueError(f"Failed to download image: HTTP {response.status}")
-            
-            image_content = await response.body()
-            
-            # Save image to tmp directory
-            random_filename = f"stealth_image_{random.randint(100000, 999999)}.jpg"
-            filepath = os.path.join(TMP_DIR, random_filename)
-            
-            with open(filepath, 'wb') as f:
-                f.write(image_content)
-            
-            await context.close()
-            await browser.close()
-            return filepath
-            
-    except Exception as e:
-        raise ValueError(f"Playwright stealth download failed: {str(e)}")
-
 async def download_media(url, media_type="video"):
     """Async wrapper for media download"""
     loop = asyncio.get_event_loop()
@@ -384,27 +275,57 @@ async def process_task(
         media_type = "audio" if is_audio else "video"
         filename = await download_media(url, media_type)
 
-        # Determine file type by extension
-        file_ext = os.path.splitext(filename)[1].lower()
-        
-        if is_audio or file_ext in ['.mp3', '.wav', '.m4a']:
-            logging.info(f"Downloading audio from {url}")
-            await message.reply_audio(
-                audio=types.FSInputFile(filename),
-                )
-        elif file_ext in ['.jpg', '.jpeg', '.png', '.webp']:
-            logging.info(f"Downloading image from {url}")
-            await message.reply_photo(
-                photo=types.FSInputFile(filename),
-                )
+        # Check if it's a list (carousel) or single file
+        if isinstance(filename, list):
+            # Processing carousel - sending all files
+            logging.info(f"Sending carousel with {len(filename)} items from {url}")
+            media_group = []
+            
+            for i, file_path in enumerate(filename):
+                file_ext = os.path.splitext(file_path)[1].lower()
+                
+                if file_ext in ['.jpg', '.jpeg', '.png', '.webp']:
+                    media_group.append(types.InputMediaPhoto(
+                        media=types.FSInputFile(file_path),
+                    ))
+                elif file_ext in ['.mp4', '.mov', '.avi']:
+                    media_group.append(types.InputMediaVideo(
+                        media=types.FSInputFile(file_path),
+                    ))
+            
+            if media_group:
+                # Send media as group (up to 10 items at once)
+                for i in range(0, len(media_group), 10):
+                    batch = media_group[i:i+10]
+                    await message.reply_media_group(media=batch)
+            
+            # Delete all carousel files
+            for file_path in filename:
+                await safe_remove_file(file_path)
+                
         else:
-            logging.info(f"Downloading video from {url}")
-            await message.reply_video(
-                video=types.FSInputFile(filename),
-                )
+            # Process single file (as before)
+            file_ext = os.path.splitext(filename)[1].lower()
+            
+            if is_audio or file_ext in ['.mp3', '.wav', '.m4a']:
+                logging.info(f"Downloading audio from {url}")
+                await message.reply_audio(
+                    audio=types.FSInputFile(filename),
+                    )
+            elif file_ext in ['.jpg', '.jpeg', '.png', '.webp']:
+                logging.info(f"Downloading image from {url}")
+                await message.reply_photo(
+                    photo=types.FSInputFile(filename),
+                    )
+            else:
+                logging.info(f"Downloading video from {url}")
+                await message.reply_video(
+                    video=types.FSInputFile(filename),
+                    )
+                    
+            await safe_remove_file(filename)
                 
         await process_msg.delete()
-        await safe_remove_file(filename)
     except Exception as e:
         if message.chat.type == "private":
             await bot.send_message(user_id, f"❌ Error: {str(e)}")
