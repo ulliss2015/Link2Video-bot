@@ -4,6 +4,7 @@ import asyncio
 import logging
 import random
 import os
+import requests
 import subprocess
 import sys
 import uuid
@@ -105,13 +106,19 @@ def get_ig_client():
 # DOWNLOAD UTILITIES
 # ---------------------------
 def sync_download_media(url, media_type="video"):
-    """Optimized function: separates YouTube and Instagram"""
+    """Диспетчер: распределяет задачи между API и yt-dlp"""
     
-    # If it's Instagram - go straight to instagrapi (much faster)
-    if "instagram.com" in url.lower():
+    url_lower = url.lower()
+    
+    # 1. Instagram (через instagrapi)
+    if "instagram.com" in url_lower:
         return sync_download_instagram_all_types(url, media_type)
 
-    # For everything else (YouTube, TikTok, etc.) keep yt-dlp
+    # 2. TikTok (via new API)
+    if "tiktok.com" in url_lower:
+        return sync_download_tiktok_all_types(url)
+
+    # 3. Все остальное (YouTube, Pinterest и т.д. через yt-dlp)
     random_filename = f"{media_type}_{random.randint(100000, 999999)}"
     ydl_opts = {
         'outtmpl': f'{TMP_DIR}/{random_filename}.%(ext)s',
@@ -125,7 +132,7 @@ def sync_download_media(url, media_type="video"):
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
+        ydl.download([url])
         return os.path.join(TMP_DIR, random_filename + ".mp4")
 
 def sync_download_instagram_all_types(url, media_type="video"):
@@ -202,6 +209,47 @@ def fallback_download_yt_dlp(url, media_type):
     raise ValueError("All download methods failed")
 
 
+def sync_download_tiktok_all_types(url):
+    """Download carousels and audio from TikTok via TikWM API"""
+    try:
+        api_url = f"https://www.tikwm.com/api/?url={url}"
+        response = requests.get(api_url).json()
+        
+        if response.get("code") != 0:
+            raise ValueError(f"TikTok API error: {response.get('msg')}")
+            
+        data = response.get("data")
+        random_id = random.randint(100000, 999999)
+        result_data = {"images": [], "audio": None, "video": None}
+        
+        # 1. Download audio (available in both videos and photo carousels)
+        music_url = data.get("music")
+        if music_url:
+            audio_path = os.path.join(TMP_DIR, f"tt_audio_{random_id}.mp3")
+            with open(audio_path, "wb") as f:
+                f.write(requests.get(music_url).content)
+            result_data["audio"] = audio_path
+
+        # 2. Check: Carousel or Video
+        if "images" in data and data["images"]:
+            for i, img_url in enumerate(data["images"]):
+                path = os.path.join(TMP_DIR, f"tt_carousel_{random_id}_{i+1}.jpg")
+                with open(path, "wb") as f:
+                    f.write(requests.get(img_url).content)
+                result_data["images"].append(path)
+        else:
+            video_url = data.get("play")
+            path = os.path.join(TMP_DIR, f"tt_video_{random_id}.mp4")
+            with open(path, "wb") as f:
+                f.write(requests.get(video_url).content)
+            result_data["video"] = path
+            
+        return result_data
+
+    except Exception as e:
+        logging.error(f"TikTok API error: {e}")
+        raise e
+    
 def parse_netscape_cookies(cookies_file_path):
     """Parse Netscape cookies file format for Playwright"""
     cookies = []
@@ -275,8 +323,27 @@ async def process_task(
         media_type = "audio" if is_audio else "video"
         filename = await download_media(url, media_type)
 
-        # Check if it's a list (carousel) or single file
-        if isinstance(filename, list):
+        # Check if it's a TikTok result dict (with images, audio, video)
+        if isinstance(filename, dict):
+            # If there's video - send video
+            if filename.get("video"):
+                await message.reply_video(video=types.FSInputFile(filename["video"]))
+                await safe_remove_file(filename["video"])
+            
+            # If there are images - send album
+            if filename.get("images"):
+                media_group = [types.InputMediaPhoto(media=types.FSInputFile(p)) for p in filename["images"][:10]]
+                await message.reply_media_group(media=media_group)
+                for p in filename["images"]:
+                    await safe_remove_file(p)
+            
+            # If there's audio - send audio file
+            if filename.get("audio"):
+                await message.reply_audio(audio=types.FSInputFile(filename["audio"]), caption="🎵 Music from post")
+                await safe_remove_file(filename["audio"])
+        
+        # Check if it's a list (carousel from Instagram) or single file
+        elif isinstance(filename, list):
             # Processing carousel - sending all files
             logging.info(f"Sending carousel with {len(filename)} items from {url}")
             media_group = []
