@@ -332,8 +332,12 @@ async def process_task(
             
             # If there are images - send album
             if filename.get("images"):
-                media_group = [types.InputMediaPhoto(media=types.FSInputFile(p)) for p in filename["images"][:10]]
-                await message.reply_media_group(media=media_group)
+                # Create media group from all images
+                all_media = [types.InputMediaPhoto(media=types.FSInputFile(p)) for p in filename["images"]]
+                # Send in batches of 10 (Telegram limit)
+                for i in range(0, len(all_media), 10):
+                    batch = all_media[i:i+10]
+                    await message.reply_media_group(media=batch)
                 for p in filename["images"]:
                     await safe_remove_file(p)
             
