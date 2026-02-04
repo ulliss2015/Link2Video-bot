@@ -210,7 +210,7 @@ def fallback_download_yt_dlp(url, media_type):
 
 
 def sync_download_tiktok_all_types(url):
-    """Download carousels and audio from TikTok via TikWM API"""
+    """Download carousels with audio from TikTok via TikWM API (audio only for carousels)"""
     try:
         api_url = f"https://www.tikwm.com/api/?url={url}"
         response = requests.get(api_url).json()
@@ -222,22 +222,28 @@ def sync_download_tiktok_all_types(url):
         random_id = random.randint(100000, 999999)
         result_data = {"images": [], "audio": None, "video": None}
         
-        # 1. Download audio (available in both videos and photo carousels)
-        music_url = data.get("music")
-        if music_url:
-            audio_path = os.path.join(TMP_DIR, f"tt_audio_{random_id}.mp3")
-            with open(audio_path, "wb") as f:
-                f.write(requests.get(music_url).content)
-            result_data["audio"] = audio_path
+        # Check if it's carousel or video first
+        is_carousel = "images" in data and data["images"]
+        
+        # Download audio only for carousels
+        if is_carousel:
+            music_url = data.get("music")
+            if music_url:
+                audio_path = os.path.join(TMP_DIR, f"tt_audio_{random_id}.mp3")
+                with open(audio_path, "wb") as f:
+                    f.write(requests.get(music_url).content)
+                result_data["audio"] = audio_path
 
-        # 2. Check: Carousel or Video
-        if "images" in data and data["images"]:
+        # Download carousel images or single video
+        if is_carousel:
+            # Carousel: download all images
             for i, img_url in enumerate(data["images"]):
                 path = os.path.join(TMP_DIR, f"tt_carousel_{random_id}_{i+1}.jpg")
                 with open(path, "wb") as f:
                     f.write(requests.get(img_url).content)
                 result_data["images"].append(path)
         else:
+            # Single video: download only video (no audio)
             video_url = data.get("play")
             path = os.path.join(TMP_DIR, f"tt_video_{random_id}.mp4")
             with open(path, "wb") as f:
