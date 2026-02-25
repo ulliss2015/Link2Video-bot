@@ -11,6 +11,7 @@ import uuid
 import yt_dlp
 import re
 import base64
+import time
 from instagrapi import Client
 from collections import defaultdict
 from datetime import datetime
@@ -87,9 +88,6 @@ worker_lock = asyncio.Lock()
 def get_ig_client():
     """Initialize Instagram client with session support"""
     cl = Client()    
-    # if os.path.exists(IG_SESSION_PATH):
-    #     cl.load_settings(IG_SESSION_PATH)
-    # return cl
 
     if os.path.exists(IG_SESSION_PATH):
         try:
@@ -212,6 +210,7 @@ def fallback_download_yt_dlp(url, media_type):
 def sync_download_tiktok_all_types(url):
     """Download carousels with audio from TikTok via TikWM API (audio only for carousels)"""
     try:
+        time.sleep(1)
         api_url = f"https://www.tikwm.com/api/?url={url}"
         response = requests.get(api_url).json()
         

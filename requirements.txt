@@ -24,4 +24,5 @@ typing-inspection==0.4.1
 typing_extensions==4.14.1
 urllib3==2.5.0
 yarl==1.20.1
-yt-dlp==2025.9.5
+yt-dlp==2026.2.4
+instagrapi==2.2.1
