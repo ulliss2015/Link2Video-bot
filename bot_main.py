@@ -122,8 +122,6 @@ def init_ig_client():
 # DOWNLOAD UTILITIES
 # ---------------------------
 def sync_download_media(url, media_type="video"):
-    """Диспетчер: распределяет задачи между API и yt-dlp"""
-    
     url_lower = url.lower()
     
     # 1. Instagram (через instagrapi)
