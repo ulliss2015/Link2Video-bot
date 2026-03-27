@@ -89,10 +89,21 @@ worker_lock = asyncio.Lock()
 _tiktok_lock = threading.Lock()
 _tiktok_last_request_time = 0.0
 
+# Global Instagram client (initialized once on startup)
+_ig_client: Client | None = None
 
-def get_ig_client():
-    """Initialize Instagram client with session support"""
-    cl = Client()    
+
+def get_ig_client() -> Client:
+    """Return the global Instagram client (already initialized on startup)"""
+    if _ig_client is None:
+        raise RuntimeError("Instagram client is not initialized. Call init_ig_client() first.")
+    return _ig_client
+
+
+def init_ig_client():
+    """Initialize Instagram client once on bot startup"""
+    global _ig_client
+    cl = Client()
 
     if os.path.exists(IG_SESSION_PATH):
         try:
@@ -102,7 +113,9 @@ def get_ig_client():
         except Exception:
             logging.warning("Session expired, need to re-login via auth_insta.py")
     else:
-        logging.warning("No ig_session.json found!")
+        logging.warning("No ig_session.json found! Instagram pictures downloads may not work.")
+
+    _ig_client = cl
     return cl
 
 # ---------------------------
@@ -497,6 +510,8 @@ async def message_handler(message: Message):
 # MAIN APPLICATION
 # ---------------------------
 async def on_startup():
+    # Initialize Instagram client once
+    await asyncio.to_thread(init_ig_client)
     # Start background worker
     asyncio.create_task(task_worker())
     logging.info("Bot started with task worker")
