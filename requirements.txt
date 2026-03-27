@@ -6,7 +6,7 @@ aiosignal==1.4.0
 annotated-types==0.7.0
 asyncio==3.4.3
 attrs==25.3.0
-certifi==2025.6.15
+certifi==2025.8.3
 charset-normalizer==3.4.2
 ffmpeg==1.4
 frozenlist==1.7.0
@@ -15,12 +15,14 @@ instaloader==4.14.1
 logging==0.4.9.6
 magic-filter==1.0.12
 multidict==6.6.3
+playwright==1.40.0
+playwright-stealth==2.0.0
 propcache==0.3.2
 pydantic==2.11.7
 pydantic_core==2.33.2
-requests==2.32.4
 typing-inspection==0.4.1
 typing_extensions==4.14.1
 urllib3==2.5.0
 yarl==1.20.1
-yt-dlp==2025.6.30
+yt-dlp==2026.2.4
+instagrapi==2.2.1
