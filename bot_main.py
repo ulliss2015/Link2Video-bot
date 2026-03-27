@@ -12,6 +12,7 @@ import yt_dlp
 import re
 import base64
 import time
+import threading
 from instagrapi import Client
 from collections import defaultdict
 from datetime import datetime
@@ -83,6 +84,10 @@ dp = Dispatcher()
 # Task queue and worker system
 task_queues = defaultdict(list)
 worker_lock = asyncio.Lock()
+
+# TikTok rate limiter: ensures min 1.1s between requests across all threads
+_tiktok_lock = threading.Lock()
+_tiktok_last_request_time = 0.0
 
 
 def get_ig_client():
@@ -209,8 +214,16 @@ def fallback_download_yt_dlp(url, media_type):
 
 def sync_download_tiktok_all_types(url):
     """Download carousels with audio from TikTok via TikWM API (audio only for carousels)"""
+    global _tiktok_last_request_time
     try:
-        time.sleep(1)
+        # Thread-safe rate limiter: min 1.1s between requests
+        with _tiktok_lock:
+            now = time.monotonic()
+            wait = 1.5 - (now - _tiktok_last_request_time)
+            if wait > 0:
+                time.sleep(wait)
+            _tiktok_last_request_time = time.monotonic()
+
         api_url = f"https://www.tikwm.com/api/?url={url}"
         response = requests.get(api_url).json()
         
